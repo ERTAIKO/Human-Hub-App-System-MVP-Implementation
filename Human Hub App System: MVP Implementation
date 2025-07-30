@@ -1,0 +1,387 @@
+human-hub-backend/
+├── models/
+│   ├── User.js
+│   ├── Circle.js
+│   ├── Story.js
+├── routes/
+│   ├── auth.js
+│   ├── circles.js
+│   ├── stories.js
+├── middleware/
+│   ├── auth.js
+├── server.js
+├── package.json
+
+const express = require('express');
+const mongoose = require('mongoose');
+const authRoutes = require('./routes/auth');
+const circleRoutes = require('./routes/circles');
+const storyRoutes = require('./routes/stories');
+
+const app = express();
+app.use(express.json());
+
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost/human-hub', { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/circles', circleRoutes);
+app.use('/api/stories', storyRoutes);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  username: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+// Hash password before saving
+userSchema.pre('save', async function (next) {
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  next();
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+const mongoose = require('mongoose');
+
+const circleSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: String,
+  members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  isPublic: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Circle', circleSchema);
+
+const mongoose = require('mongoose');
+
+const storySchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  circle: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
+  content: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Story', storySchema);
+
+const jwt = require('jsonwebtoken');
+
+module.exports = (req, res, next) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  try {
+    const decoded = jwt.verify(token, 'your_jwt_secret');
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const router = express.Router();
+
+// Register
+router.post('/register', async (req, res) => {
+  const { email, password, username } = req.body;
+  try {
+    let user = await User.findOne({ email });
+    if (user) return res.status(400).json({ error: 'User already exists' });
+
+    user = new User({ email, password, username });
+    await user.save();
+
+    const token = jwt.sign({ id: user._id }, 'your_jwt_secret', { expiresIn: '1h' });
+    res.status(201).json({ token, user: { id: user._id, username } });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Login
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+
+    const token = jwt.sign({ id: user._id }, 'your_jwt_secret', { expiresIn: '1h' });
+    res.json({ token, user: { id: user._id, username: user.username } });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
+
+const express = require('express');
+const Circle = require('../models/Circle');
+const auth = require('../middleware/auth');
+const router = express.Router();
+
+// Create a circle
+router.post('/', auth, async (req, res) => {
+  const { name, description, isPublic } = req.body;
+  try {
+    const circle = new Circle({ name, description, isPublic, members: [req.user.id] });
+    await circle.save();
+    res.status(201).json(circle);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Join a circle
+router.post('/:id/join', auth, async (req, res) => {
+  try {
+    const circle = await Circle.findById(req.params.id);
+    if (!circle) return res.status(404).json({ error: 'Circle not found' });
+    if (circle.members.includes(req.user.id)) return res.status(400).json({ error: 'Already a member' });
+
+    circle.members.push(req.user.id);
+    await circle.save();
+    res.json(circle);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
+
+const express = require('express');
+const Story = require('../models/Story');
+const Circle = require('../models/Circle');
+const auth = require('../middleware/auth');
+const router = express.Router();
+
+// Post a story
+router.post('/', auth, async (req, res) => {
+  const { circleId, content } = req.body;
+  try {
+    const circle = await Circle.findById(circleId);
+    if (!circle) return res.status(404).json({ error: 'Circle not found' });
+    if (!circle.members.includes(req.user.id)) return res.status(403).json({ error: 'Not a member' });
+
+    const story = new Story({ user: req.user.id, circle: circleId, content });
+    await story.save();
+    res.status(201).json(story);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+module.exports = router;
+
+{
+  "name": "human-hub-backend",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "mongoose": "^6.0.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^8.5.1"
+  }
+}
+
+HumanHubApp/
+├── screens/
+│   ├── LoginScreen.js
+│   ├── CirclesScreen.js
+│   ├── StoryScreen.js
+├── App.js
+
+import React from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
+import LoginScreen from './screens/LoginScreen';
+import CirclesScreen from './screens/CirclesScreen';
+import StoryScreen from './screens/StoryScreen';
+
+const Stack = createStackNavigator();
+
+export default function App() {
+  return (
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="Login">
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Circles" component={CirclesScreen} />
+        <Stack.Screen name="Story" component={StoryScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+import React, { useState } from 'react';
+import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import axios from 'axios';
+
+export default function LoginScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const handleLogin = async () => {
+    try {
+      const response = await axios.post('http://localhost:3000/api/auth/login', { email, password });
+      // Store token in AsyncStorage or state management in a real app
+      navigation.navigate('Circles', { token: response.data.token });
+    } catch (err) {
+      alert('Login failed: ' + err.response.data.error);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Human Hub</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+      <Button title="Login" onPress={handleLogin} />
+      <Button title="Register" onPress={() => alert('Register not implemented')} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, justifyContent: 'center', padding: 20 },
+  title: { fontSize: 24, textAlign: 'center', marginBottom: 20 },
+  input: { borderWidth: 1, padding: 10, marginBottom: 10, borderRadius: 5 }
+});
+
+import React, { useState, useEffect } from 'react';
+import { View, Text, Button, FlatList, StyleSheet } from 'react-native';
+import axios from 'axios';
+
+export default function CirclesScreen({ route, navigation }) {
+  const { token } = route.params;
+  const [circles, setCircles] = useState([]);
+
+  useEffect(() => {
+    const fetchCircles = async () => {
+      try {
+        const response = await axios.get('http://localhost:3000/api/circles', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setCircles(response.data);
+      } catch (err) {
+        alert('Error fetching circles: ' + err.response.data.error);
+      }
+    };
+    fetchCircles();
+  }, [token]);
+
+  const joinCircle = async (circleId) => {
+    try {
+      await axios.post(`http://localhost:3000/api/circles/${circleId}/join`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Joined circle!');
+    } catch (err) {
+      alert('Error joining circle: ' + err.response.data.error);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Connection Circles</Text>
+      <FlatList
+        data={circles}
+        keyExtractor={(item) => item._id}
+        renderItem={({ item }) => (
+          <View style={styles.item}>
+            <Text>{item.name}</Text>
+            <Button
+              title="Join"
+              onPress={() => joinCircle(item._id)}
+            />
+            <Button
+              title="View Stories"
+              onPress={() => navigation.navigate('Story', { circleId: item._id, token })}
+            />
+          </View>
+        )}
+      />
+      <Button title="Create Circle" onPress={() => alert('Create circle not implemented')} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 20 },
+  title: { fontSize: 20, marginBottom: 10 },
+  item: { padding: 10, borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between' }
+});
+
+import React, { useState } from 'react';
+import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import axios from 'axios';
+
+export default function StoryScreen({ route }) {
+  const { circleId, token } = route.params;
+  const [content, setContent] = useState('');
+
+  const postStory = async () => {
+    try {
+      await axios.post('http://localhost:3000/api/stories', { circleId, content }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Story posted!');
+      setContent('');
+    } catch (err) {
+      alert('Error posting story: ' + err.response.data.error);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Post a Story</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Share your story..."
+        value={content}
+        onChangeText={setContent}
+        multiline
+      />
+      <Button title="Post" onPress={postStory} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 20 },
+  title: { fontSize: 20, marginBottom: 10 },
+  input: { borderWidth: 1, padding: 10, marginBottom: 10, borderRadius: 5, height: 100 }
+});
+
