@@ -1,0 +1,14 @@
+ return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Post a Story</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Share your story..."
+        value={content}
+        onChangeText={setContent}
+        multiline
+      />
+      <Button title="Post" onPress={postStory} />
+    </View>
+  );
+}
