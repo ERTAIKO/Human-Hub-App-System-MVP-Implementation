@@ -352,17 +352,6 @@ export default function StoryScreen({ route }) {
   const { circleId, token } = route.params;
   const [content, setContent] = useState('');
 
-  const postStory = async () => {
-    try {
-      await axios.post('http://localhost:3000/api/stories', { circleId, content }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      alert('Story posted!');
-      setContent('');
-    } catch (err) {
-      alert('Error posting story: ' + err.response.data.error);
-    }
-  };
 
  
 
