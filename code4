@@ -1,0 +1,11 @@
+  const postStory = async () => {
+    try {
+      await axios.post('http://localhost:3000/api/stories', { circleId, content }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Story posted!');
+      setContent('');
+    } catch (err) {
+      alert('Error posting story: ' + err.response.data.error);
+    }
+  };
