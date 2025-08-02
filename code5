@@ -1,0 +1,7 @@
+import React, { useState } from 'react';
+import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
+import axios from 'axios';
+
+export default function StoryScreen({ route }) {
+  const { circleId, token } = route.params;
+  const [content, setContent] = useState('');
