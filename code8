@@ -1,0 +1,11 @@
+     <Button
+              title="View Stories"
+              onPress={() => navigation.navigate('Story', { circleId: item._id, token })}
+            />
+          </View>
+        )}
+      />
+      <Button title="Create Circle" onPress={() => alert('Create circle not implemented')} />
+    </View>
+  );
+}
