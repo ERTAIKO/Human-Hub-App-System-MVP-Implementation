@@ -1,0 +1,14 @@
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Connection Circles</Text>
+      <FlatList
+        data={circles}
+        keyExtractor={(item) => item._id}
+        renderItem={({ item }) => (
+          <View style={styles.item}>
+            <Text>{item.name}</Text>
+            <Button
+              title="Join"
+              onPress={() => joinCircle(item._id)}
+            />
+       
